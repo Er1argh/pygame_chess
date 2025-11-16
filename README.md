@@ -60,7 +60,6 @@ chess_pygame/
 ```
 
 4. Запуск
-5.
 
 ```bash
 poetry run python main.py
