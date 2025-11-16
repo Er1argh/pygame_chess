@@ -1,15 +1,25 @@
 """
-Chess (Pygame) — integrated chess engine with legal move generation and full special rules:
-- Castling (king- and rook-move checks, can't castle through check)
-- En-passant
-- Pawn promotion with interactive popup choice (Q/R/B/N)
+Chess (Pygame) — integrated chess engine with legal move generation and full special rules + sprites & animation
+
+Features in this update:
+- Sprite-based piece visuals (if asset files are present in ./assets)
+- Smooth sliding animation for moves (including castling: king + rook animate together)
+- Animation does not modify the board state until it completes — preserving engine checks
+- Fallback to Unicode/text pieces when sprite assets are missing
+
+Sprite asset expectations (optional):
+- Place PNG images in an `assets` directory next to this script.
+- Filenames: wK.png, wQ.png, wR.png, wB.png, wN.png, wP.png and bK.png, bQ.png, ... bP.png
+- Images will be scaled to square size automatically.
 
 Run: pip install pygame ; python main.py
 Controls:
 - Left click: select piece / move to highlighted square
-- U key: undo last move
+- U key: undo last move (disabled during animations)
+
 """
 
+import os
 import pygame
 import sys
 from dataclasses import dataclass
@@ -20,10 +30,11 @@ WIDTH, HEIGHT = 640, 640
 ROWS, COLS = 8, 8
 SQUARE_SIZE = WIDTH // COLS
 FPS = 60
+ANIMATION_DURATION = 250  # milliseconds for a single-piece move (tweakable)
 
-LIGHT = (245, 245, 220)
-DARK = (118, 150, 86)
-HIGHLIGHT = (186, 202, 68)
+LIGHT = (240, 217, 181)
+DARK = (181, 136, 99)
+HIGHLIGHT = (246, 246, 105)
 MOVE_MARK = (200, 50, 50)
 BLACK_TEXT = (20, 20, 20)
 
@@ -33,7 +44,6 @@ UNICODE_PIECES = {
 }
 
 Pos = Tuple[int, int]
-
 
 # ----------------- Engine: pieces, board, engine -----------------
 class Piece:
@@ -90,7 +100,7 @@ class Knight(Piece):
     def pseudo_legal_moves(self, board: "Board", pos: Pos) -> List[Pos]:
         moves: List[Pos] = []
         r, c = pos
-        deltas = [(2, 1), (2, -1), (-2, 1), (-2, -1), (1, 2), (1, -2), (-1, 2), (-1, -2)]
+        deltas = [(2,1),(2,-1),(-2,1),(-2,-1),(1,2),(1,-2),(-1,2),(-1,-2)]
         for dr, dc in deltas:
             nr, nc = r + dr, c + dc
             if board.in_bounds((nr, nc)):
@@ -106,7 +116,7 @@ class Bishop(Piece):
 
     def pseudo_legal_moves(self, board: "Board", pos: Pos) -> List[Pos]:
         moves: List[Pos] = []
-        directions = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+        directions = [(-1,-1),(-1,1),(1,-1),(1,1)]
         for dr, dc in directions:
             nr, nc = pos[0] + dr, pos[1] + dc
             while board.in_bounds((nr, nc)):
@@ -117,8 +127,7 @@ class Bishop(Piece):
                     if target.color != self.color:
                         moves.append((nr, nc))
                     break
-                nr += dr;
-                nc += dc
+                nr += dr; nc += dc
         return moves
 
 
@@ -128,7 +137,7 @@ class Rook(Piece):
 
     def pseudo_legal_moves(self, board: "Board", pos: Pos) -> List[Pos]:
         moves: List[Pos] = []
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        directions = [(-1,0),(1,0),(0,-1),(0,1)]
         for dr, dc in directions:
             nr, nc = pos[0] + dr, pos[1] + dc
             while board.in_bounds((nr, nc)):
@@ -139,8 +148,7 @@ class Rook(Piece):
                     if target.color != self.color:
                         moves.append((nr, nc))
                     break
-                nr += dr;
-                nc += dc
+                nr += dr; nc += dc
         return moves
 
 
@@ -169,18 +177,15 @@ class King(Piece):
                     if target is None or target.color != self.color:
                         moves.append((nr, nc))
         # Castling pseudo-legal: basic checks (not checking attacks here)
-        # King must not have moved, rook must exist and not moved, squares between empty
         if not self.has_moved:
             row = r
             # kingside
-            if board.get((row, 7)) is not None and isinstance(board.get((row, 7)), Rook) and not board.get(
-                    (row, 7)).has_moved:
-                if board.get((row, 5)) is None and board.get((row, 6)) is None:
+            if board.get((row, 7)) is not None and isinstance(board.get((row,7)), Rook) and not board.get((row,7)).has_moved:
+                if board.get((row,5)) is None and board.get((row,6)) is None:
                     moves.append((row, 6))
             # queenside
-            if board.get((row, 0)) is not None and isinstance(board.get((row, 0)), Rook) and not board.get(
-                    (row, 0)).has_moved:
-                if board.get((row, 1)) is None and board.get((row, 2)) is None and board.get((row, 3)) is None:
+            if board.get((row, 0)) is not None and isinstance(board.get((row,0)), Rook) and not board.get((row,0)).has_moved:
+                if board.get((row,1)) is None and board.get((row,2)) is None and board.get((row,3)) is None:
                     moves.append((row, 2))
         return moves
 
@@ -215,11 +220,10 @@ class Move:
 
 
 class Board:
-    ROWS = 8;
-    COLS = 8
+    ROWS = 8; COLS = 8
 
     def __init__(self):
-        self.grid: List[List[Optional[Piece]]] = [[None] * self.COLS for _ in range(self.ROWS)]
+        self.grid: List[List[Optional[Piece]]] = [[None]*self.COLS for _ in range(self.ROWS)]
         self.en_passant_target: Optional[Pos] = None
         self.setup_start_position()
 
@@ -367,9 +371,6 @@ class Board:
             return
 
         # normal revert
-        moved_piece = self.get(move.to_sq)
-        # If moved_piece is same object, we need to revert; but in our implementation we moved original piece instance
-        # back to from_sq.
         self.set(move.from_sq, move.piece)
         self.set(move.to_sq, captured)
         move.piece.has_moved = move.prev_piece_has_moved
@@ -385,7 +386,7 @@ class Board:
                 if p is not None and p.color == by_color and p.kind == 'P':
                     return True
         # knight
-        knight_deltas = [(2, 1), (2, -1), (-2, 1), (-2, -1), (1, 2), (1, -2), (-1, 2), (-1, -2)]
+        knight_deltas = [(2,1),(2,-1),(-2,1),(-2,-1),(1,2),(1,-2),(-1,2),(-1,-2)]
         for dr, dc in knight_deltas:
             nr, nc = r + dr, c + dc
             if self.in_bounds((nr, nc)):
@@ -393,7 +394,7 @@ class Board:
                 if p is not None and p.color == by_color and p.kind == 'N':
                     return True
         # rook/queen straight
-        straight_dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        straight_dirs = [(-1,0),(1,0),(0,-1),(0,1)]
         for dr, dc in straight_dirs:
             nr, nc = r + dr, c + dc
             while self.in_bounds((nr, nc)):
@@ -402,10 +403,9 @@ class Board:
                     if p.color == by_color and (p.kind == 'R' or p.kind == 'Q'):
                         return True
                     break
-                nr += dr;
-                nc += dc
+                nr += dr; nc += dc
         # bishop/queen diagonals
-        diag_dirs = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+        diag_dirs = [(-1,-1),(-1,1),(1,-1),(1,1)]
         for dr, dc in diag_dirs:
             nr, nc = r + dr, c + dc
             while self.in_bounds((nr, nc)):
@@ -414,11 +414,10 @@ class Board:
                     if p.color == by_color and (p.kind == 'B' or p.kind == 'Q'):
                         return True
                     break
-                nr += dr;
-                nc += dc
+                nr += dr; nc += dc
         # king adjacency
-        for dr in (-1, 0, 1):
-            for dc in (-1, 0, 1):
+        for dr in (-1,0,1):
+            for dc in (-1,0,1):
                 if dr == 0 and dc == 0: continue
                 nr, nc = r + dr, c + dc
                 if self.in_bounds((nr, nc)):
@@ -433,13 +432,12 @@ class Board:
             empty = 0
             rowp = ""
             for c in range(8):
-                p = self.get((r, c))
+                p = self.get((r,c))
                 if p is None:
                     empty += 1
                 else:
                     if empty:
-                        rowp += str(empty);
-                        empty = 0
+                        rowp += str(empty); empty = 0
                     ch = p.kind.upper() if p.color == 'w' else p.kind.lower()
                     rowp += ch
             if empty:
@@ -452,7 +450,7 @@ class Board:
         for r in range(8):
             row = []
             for c in range(8):
-                p = self.get((r, c))
+                p = self.get((r,c))
                 row.append(str(p) if p else "..")
             rows.append(" ".join(row))
         return "\n".join(rows)
@@ -467,10 +465,10 @@ class GameEngine:
         moves: List[Move] = []
         for r in range(8):
             for c in range(8):
-                p = self.board.get((r, c))
+                p = self.board.get((r,c))
                 if p is not None and p.color == color:
-                    for to_sq in p.pseudo_legal_moves(self.board, (r, c)):
-                        mv = Move((r, c), to_sq, p, self.board.get(to_sq))
+                    for to_sq in p.pseudo_legal_moves(self.board, (r,c)):
+                        mv = Move((r,c), to_sq, p, self.board.get(to_sq))
                         # mark castling if king moves two squares horizontally
                         if p.kind == 'K' and abs(to_sq[1] - c) == 2:
                             mv.is_castling = True
@@ -484,7 +482,6 @@ class GameEngine:
                         # mark en-passant
                         if p.kind == 'P' and self.board.en_passant_target is not None and to_sq == self.board.en_passant_target:
                             mv.is_en_passant = True
-                            # captured pawn is behind target square
                             ep_row = r
                             ep_col = to_sq[1]
                             mv.en_passant_captured_sq = (r, to_sq[1])
@@ -504,21 +501,16 @@ class GameEngine:
             return False
         if move.to_sq not in move.piece.pseudo_legal_moves(self.board, move.from_sq):
             return False
-        # special-case castling: ensure king not currently in check and does not pass through attacked squares
         if move.is_castling:
-            # king must not be currently in check
             if self.is_in_check(move.piece.color):
                 return False
-            # squares king passes through
             r, c_from = move.from_sq
             c_to = move.to_sq[1]
             step = 1 if c_to > c_from else -1
             opponent = 'b' if move.piece.color == 'w' else 'w'
-            # check intermediate squares (excluding starting square, include landing and the square passed through)
-            for c in (c_from + step, c_from + 2 * step):
+            for c in (c_from + step, c_from + 2*step):
                 if self.board.is_square_attacked((r, c), opponent):
                     return False
-        # apply move and test king safety
         captured = self.board.make_move_and_return_captured(move)
         in_check = self.is_in_check(move.piece.color)
         self.board.unmake_move(move, captured)
@@ -532,7 +524,6 @@ class GameEngine:
         legal: List[Pos] = []
         for to in pseudo:
             mv = Move(pos, to, p, self.board.get(to))
-            # set special flags same as generator
             if p.kind == 'K' and abs(to[1] - pos[1]) == 2:
                 mv.is_castling = True
                 row = pos[0]
@@ -549,8 +540,30 @@ class GameEngine:
                 legal.append(to)
         return legal
 
+# ----------------- Animated move helper -----------------
+@dataclass
+class MovingPiece:
+    piece: Piece
+    from_sq: Pos
+    to_sq: Pos
 
-# ----------------- Pygame UI -----------------
+
+@dataclass
+class AnimatedMove:
+    moving: List[MovingPiece]
+    move_obj: Move
+    start_time_ms: int
+    duration_ms: int = ANIMATION_DURATION
+    finished: bool = False
+
+    def progress(self, now_ms: int) -> float:
+        elapsed = now_ms - self.start_time_ms
+        t = min(1.0, max(0.0, elapsed / self.duration_ms))
+        if elapsed >= self.duration_ms:
+            self.finished = True
+        return t
+
+# ----------------- Pygame UI with sprites & animation -----------------
 class Renderer:
     def __init__(self, surface):
         self.surface = surface
@@ -558,39 +571,101 @@ class Renderer:
             self.font = pygame.font.SysFont('segoeuisymbol', 36)
         except Exception:
             self.font = pygame.font.SysFont(None, 36)
+        self.piece_images: Dict[Tuple[str,str], pygame.Surface] = {}
+        self.load_piece_images()
 
-    def draw_board(self, board: Board, selected: Optional[Pos], legal_moves: List[Pos]):
+    def load_piece_images(self, assets_dir: str = 'assets'):
+        # try to load individual piece PNGs e.g. wP.png, bK.png ...
+        for color in ('w', 'b'):
+            for kind in ('K','Q','R','B','N','P'):
+                fname = os.path.join(assets_dir, f"{color}{kind}.png")
+                if os.path.exists(fname):
+                    try:
+                        img = pygame.image.load(fname).convert_alpha()
+                        img = pygame.transform.smoothscale(img, (SQUARE_SIZE, SQUARE_SIZE))
+                        self.piece_images[(color, kind)] = img
+                    except Exception:
+                        # fallback: do not crash; skip
+                        pass
+        # if no images found, piece_images stays empty -> fallback to unicode rendering
+
+    def draw_board(self, board: Board, selected: Optional[Pos], legal_moves: List[Pos], animated_move: Optional[AnimatedMove]):
+        # draw squares
         for r in range(ROWS):
             for c in range(COLS):
                 color = LIGHT if (r + c) % 2 == 0 else DARK
                 rect = pygame.Rect(c * SQUARE_SIZE, r * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE)
                 pygame.draw.rect(self.surface, color, rect)
+        # highlight selected
         if selected:
             r, c = selected
             rect = pygame.Rect(c * SQUARE_SIZE, r * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE)
             pygame.draw.rect(self.surface, HIGHLIGHT, rect)
+        # highlight legal moves
         for (r, c) in legal_moves:
             center = (c * SQUARE_SIZE + SQUARE_SIZE // 2, r * SQUARE_SIZE + SQUARE_SIZE // 2)
             pygame.draw.circle(self.surface, MOVE_MARK, center, 10)
+        # draw pieces (skip moving-from squares for animated move)
+        moving_from_set = set()
+        if animated_move:
+            for mp in animated_move.moving:
+                moving_from_set.add(mp.from_sq)
         for r in range(ROWS):
             for c in range(COLS):
-                p = board.get((r, c))
+                pos = (r,c)
+                if pos in moving_from_set:
+                    continue
+                p = board.get(pos)
                 if p:
-                    ch = UNICODE_PIECES.get((p.color, p.kind), p.symbol())
-                    text = self.font.render(ch, True, BLACK_TEXT)
-                    tx = c * SQUARE_SIZE + SQUARE_SIZE // 2 - text.get_width() // 2
-                    ty = r * SQUARE_SIZE + SQUARE_SIZE // 2 - text.get_height() // 2
-                    self.surface.blit(text, (tx, ty))
+                    self.draw_piece_at_square(p, pos)
+        # draw animated pieces on top
+        if animated_move:
+            now_ms = pygame.time.get_ticks()
+            t = animated_move.progress(now_ms)
+            for mp in animated_move.moving:
+                sx, sy = mp.from_sq[1]*SQUARE_SIZE + SQUARE_SIZE//2, mp.from_sq[0]*SQUARE_SIZE + SQUARE_SIZE//2
+                ex, ey = mp.to_sq[1]*SQUARE_SIZE + SQUARE_SIZE//2, mp.to_sq[0]*SQUARE_SIZE + SQUARE_SIZE//2
+                # linear interpolation (can be eased)
+                ix = sx + (ex - sx) * t
+                iy = sy + (ey - sy) * t
+                self.draw_piece_at_pixel(mp.piece, (int(ix), int(iy)))
 
-    def draw_promotion_popup(self, color: str, center: Tuple[int, int]) -> List[Tuple[pygame.Rect, str]]:
+    def draw_piece_at_square(self, piece: Piece, square: Pos):
+        r, c = square
+        x = c * SQUARE_SIZE
+        y = r * SQUARE_SIZE
+        img = self.piece_images.get((piece.color, piece.kind))
+        if img is not None:
+            self.surface.blit(img, (x, y))
+        else:
+            ch = UNICODE_PIECES.get((piece.color, piece.kind), piece.symbol())
+            text = self.font.render(ch, True, BLACK_TEXT)
+            tx = x + SQUARE_SIZE//2 - text.get_width()//2
+            ty = y + SQUARE_SIZE//2 - text.get_height()//2
+            self.surface.blit(text, (tx, ty))
+
+    def draw_piece_at_pixel(self, piece: Piece, pixel_center: Tuple[int,int]):
+        img = self.piece_images.get((piece.color, piece.kind))
+        if img is not None:
+            rect = img.get_rect()
+            rect.center = pixel_center
+            self.surface.blit(img, rect.topleft)
+        else:
+            ch = UNICODE_PIECES.get((piece.color, piece.kind), piece.symbol())
+            text = self.font.render(ch, True, BLACK_TEXT)
+            tx = pixel_center[0] - text.get_width()//2
+            ty = pixel_center[1] - text.get_height()//2
+            self.surface.blit(text, (tx, ty))
+
+    def draw_promotion_popup(self, color: str, center: Tuple[int,int]) -> List[Tuple[pygame.Rect, str]]:
         # draw four choice squares horizontally centered at center
-        choices = ['Q', 'R', 'B', 'N']
+        choices = ['Q','R','B','N']
         size = 60
         spacing = 10
         margin = 8
-        total_w = len(choices) * size + (len(choices) - 1) * spacing
-        start_x = center[0] - total_w // 2
-        y = center[1] - size // 2
+        total_w = len(choices) * size + (len(choices)-1)*spacing
+        start_x = center[0] - total_w//2
+        y = center[1] - size//2
         # clamp horizontally within window
         if start_x < margin:
             start_x = margin
@@ -603,23 +678,19 @@ class Renderer:
             y = HEIGHT - margin - size
         rects = []
         for i, ch in enumerate(choices):
-            rect = pygame.Rect(int(start_x + i * (size + spacing)), int(y), size, size)
-            pygame.draw.rect(self.surface, (220, 220, 220), rect)
-            # draw border
-            pygame.draw.rect(self.surface, (120, 120, 120), rect, 2)
-            # draw piece symbol (use unicode mapping if available)
+            rect = pygame.Rect(int(start_x + i*(size+spacing)), int(y), size, size)
+            pygame.draw.rect(self.surface, (220,220,220), rect)
+            pygame.draw.rect(self.surface, (120,120,120), rect, 2)
             symbol = UNICODE_PIECES.get((color, ch), ch)
             text = self.font.render(symbol, True, BLACK_TEXT)
-            tx = rect.x + rect.width // 2 - text.get_width() // 2
-            ty = rect.y + rect.height // 2 - text.get_height() // 2
+            tx = rect.x + rect.width//2 - text.get_width()//2
+            ty = rect.y + rect.height//2 - text.get_height()//2
             self.surface.blit(text, (tx, ty))
             rects.append((rect, ch))
         return rects
 
-    def draw(self, board: Board, selected: Optional[Pos], legal_moves: List[Pos],
-             promotion_center: Optional[Tuple[int, int]] = None, promotion_color: Optional[str] = None) -> Optional[
-        List[Tuple[pygame.Rect, str]]]:
-        self.draw_board(board, selected, legal_moves)
+    def draw(self, board: Board, selected: Optional[Pos], legal_moves: List[Pos], animated_move: Optional[AnimatedMove] = None, promotion_center: Optional[Tuple[int,int]] = None, promotion_color: Optional[str] = None) -> Optional[List[Tuple[pygame.Rect, str]]]:
+        self.draw_board(board, selected, legal_moves, animated_move)
         if promotion_center and promotion_color:
             return self.draw_promotion_popup(promotion_color, promotion_center)
         return None
@@ -627,12 +698,12 @@ class Renderer:
 
 class InputHandler:
     @staticmethod
-    def pixel_to_square(pos: Tuple[int, int]) -> Pos:
-        x, y = pos
+    def pixel_to_square(pos: Tuple[int,int]) -> Pos:
+        x,y = pos
         col = x // SQUARE_SIZE
         row = y // SQUARE_SIZE
-        col = max(0, min(COLS - 1, col))
-        row = max(0, min(ROWS - 1, row))
+        col = max(0, min(COLS-1, col))
+        row = max(0, min(ROWS-1, row))
         return (row, col)
 
 
@@ -649,10 +720,43 @@ class Game:
         # pending promotion
         self.pending_promotion_move: Optional[Move] = None
         self.promotion_rects: Optional[List[Tuple[pygame.Rect, str]]] = None
+        # animation state
+        self.animated_move: Optional[AnimatedMove] = None
+
+    def start_animation_for_move(self, mv: Move):
+        # prepare list of moving pieces (support castling with two pieces)
+        moving = []
+        if mv.is_castling and mv.castling_rook_from and mv.castling_rook_to:
+            # king and rook move
+            king = mv.piece
+            rook = self.board.get(mv.castling_rook_from)
+            moving.append(MovingPiece(king, mv.from_sq, mv.to_sq))
+            if rook is not None:
+                moving.append(MovingPiece(rook, mv.castling_rook_from, mv.castling_rook_to))
+        elif mv.is_en_passant and mv.en_passant_captured_sq is not None:
+            moving.append(MovingPiece(mv.piece, mv.from_sq, mv.to_sq))
+        else:
+            moving.append(MovingPiece(mv.piece, mv.from_sq, mv.to_sq))
+        anim = AnimatedMove(moving, mv, pygame.time.get_ticks(), ANIMATION_DURATION)
+        self.animated_move = anim
+
+    def finalize_animated_move(self):
+        if not self.animated_move:
+            return
+        mv = self.animated_move.move_obj
+        captured = self.board.make_move_and_return_captured(mv)
+        self.move_history.append((mv, captured))
+        self.engine.turn = 'b' if self.engine.turn == 'w' else 'w'
+        self.animated_move = None
+        self.selected = None
+        self.legal_moves = []
 
     def select_or_move(self, sq: Pos):
         # if waiting for promotion choice, ignore board clicks
         if self.pending_promotion_move is not None:
+            return
+        # if animating, ignore input
+        if self.animated_move is not None:
             return
         p = self.board.get(sq)
         if self.selected is None:
@@ -672,29 +776,21 @@ class Game:
                     mv.is_castling = True
                     row = self.selected[0]
                     if sq[1] > self.selected[1]:
-                        mv.castling_rook_from = (row, 7);
-                        mv.castling_rook_to = (row, 5)
+                        mv.castling_rook_from = (row, 7); mv.castling_rook_to = (row, 5)
                     else:
-                        mv.castling_rook_from = (row, 0);
-                        mv.castling_rook_to = (row, 3)
+                        mv.castling_rook_from = (row, 0); mv.castling_rook_to = (row, 3)
                 if piece and piece.kind == 'P' and self.board.en_passant_target is not None and sq == self.board.en_passant_target:
                     mv.is_en_passant = True
                     mv.en_passant_captured_sq = (self.selected[0], sq[1])
                 # handle promotion: pause for choice
                 if piece and piece.kind == 'P' and (sq[0] == 0 or sq[0] == 7):
-                    # store pending move and show popup centered where user clicked
                     self.pending_promotion_move = mv
-                    px = sq[1] * SQUARE_SIZE + SQUARE_SIZE // 2
-                    py = sq[0] * SQUARE_SIZE + SQUARE_SIZE // 2
+                    px = sq[1]*SQUARE_SIZE + SQUARE_SIZE//2
+                    py = sq[0]*SQUARE_SIZE + SQUARE_SIZE//2
                     self.promotion_center = (px, py)
                     return
-                # otherwise apply immediately
-                captured = self.board.make_move_and_return_captured(mv)
-                self.move_history.append((mv, captured))
-                # switch turn
-                self.engine.turn = 'b' if self.engine.turn == 'w' else 'w'
-                self.selected = None
-                self.legal_moves = []
+                # begin animation instead of immediate apply
+                self.start_animation_for_move(mv)
             else:
                 if p and p.color == self.engine.turn:
                     self.selected = sq
@@ -712,9 +808,8 @@ class Game:
             if rect.collidepoint(pos):
                 mv = self.pending_promotion_move
                 mv.promotion = choice
-                captured = self.board.make_move_and_return_captured(mv)
-                self.move_history.append((mv, captured))
-                self.engine.turn = 'b' if self.engine.turn == 'w' else 'w'
+                # animate promotion move as usual (piece slides into place and then replaced)
+                self.start_animation_for_move(mv)
                 self.pending_promotion_move = None
                 self.promotion_rects = None
                 self.selected = None
@@ -725,7 +820,7 @@ class Game:
         self.promotion_rects = None
 
     def undo(self):
-        if not self.move_history:
+        if not self.move_history or self.animated_move is not None:
             return
         mv, captured = self.move_history.pop()
         self.board.unmake_move(mv, captured)
@@ -736,6 +831,7 @@ class Game:
         self.promotion_rects = None
 
     def run_once(self) -> bool:
+        now_ms = pygame.time.get_ticks()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
@@ -748,16 +844,20 @@ class Game:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_u:
                     self.undo()
+        # update animation: if animation present and finished -> finalize
+        if self.animated_move is not None:
+            if self.animated_move.finished:
+                self.finalize_animated_move()
         # draw
-        self.surface.fill((0, 0, 0))
+        self.surface.fill((0,0,0))
+        rects = None
         if self.pending_promotion_move is not None:
-            # draw board and popup
-            rects = self.renderer.draw(self.board, self.selected, self.legal_moves, self.promotion_center,
-                                       self.pending_promotion_move.piece.color)
+            rects = self.renderer.draw(self.board, self.selected, self.legal_moves, self.animated_move, self.promotion_center, self.pending_promotion_move.piece.color)
             self.promotion_rects = rects
         else:
-            self.renderer.draw(self.board, self.selected, self.legal_moves)
+            self.renderer.draw(self.board, self.selected, self.legal_moves, self.animated_move)
         pygame.display.flip()
+        # tick
         self.clock.tick(FPS)
         return True
 
@@ -765,7 +865,7 @@ class Game:
 def main():
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Chess - Engine + Pygame (castling, en-passant, promotion)")
+    pygame.display.set_caption("Chess - Sprites & Animation")
     game = Game(screen)
 
     running = True
