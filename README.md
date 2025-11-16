@@ -31,8 +31,8 @@
 1. Клонируй репозиторий:
 
 ```bash
-git clone <твоя-репа.git>
-cd <репа>
+git clone https://github.com/Er1argh/pygame_chess
+cd pygame_chess
 ```
 
 2. Рекомендуется создать виртуальное окружение и установить зависимости:
