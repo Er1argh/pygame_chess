@@ -282,7 +282,6 @@ class Game:
             if self.engine.is_move_legal(move):
                 leg_moves_for_white.append(move)
 
-        #and self.engine.legal_moves_for(self.board.find_king('b')) == []
         if self.engine.is_in_check('w') and leg_moves_for_white == []:
             font = pygame.font.SysFont('Calibri', 60, True)
             text = font.render('Checkmate for White', True, (255, 255, 255))
