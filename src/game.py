@@ -301,7 +301,7 @@ class Game:
                 screen.blit(text, (100, 200))
                 pygame.display.update()
 
-        if self.half_counter_moves >= 10:
+        if self.half_counter_moves >= 100:
             screen.fill((0,0,0))
             font = pygame.font.SysFont('Calibri', 60, True)
             text = font.render('Draw', True, (255, 255, 255))
