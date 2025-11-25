@@ -90,9 +90,9 @@ class Renderer:
             rect = pygame.Rect(c * SQUARE_SIZE, r * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE)
             pygame.draw.rect(self.surface, HIGHLIGHT, rect)
 
-        for (r, c) in legal_moves:
-            center = (c * SQUARE_SIZE + SQUARE_SIZE // 2, r * SQUARE_SIZE + SQUARE_SIZE // 2)
-            pygame.draw.circle(self.surface, MOVE_MARK, center, 10)
+        # for (r, c) in legal_moves:
+        #     center = (c * SQUARE_SIZE + SQUARE_SIZE // 2, r * SQUARE_SIZE + SQUARE_SIZE // 2)
+        #     pygame.draw.circle(self.surface, MOVE_MARK, center, 10)
 
         moving_from_set = set()
 
@@ -111,6 +111,10 @@ class Renderer:
 
                 if p:
                     self.draw_piece_at_square(p, pos)
+
+        for (r, c) in legal_moves:
+            center = (c * SQUARE_SIZE + SQUARE_SIZE // 2, r * SQUARE_SIZE + SQUARE_SIZE // 2)
+            pygame.draw.circle(self.surface, MOVE_MARK, center, 10)
 
         if animated_move:
             now_ms = pygame.time.get_ticks()

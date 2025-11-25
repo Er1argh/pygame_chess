@@ -18,6 +18,46 @@ from src.renderer import Renderer
 from src.sounds import SoundManager
 
 
+def show_centered_message(screen, message: str,
+                          font_name: str = "Calibri",
+                          base_size: int = None,
+                          text_color=(245, 245, 245),
+                          overlay_color=(10, 10, 10, 180)):
+    """
+    Draws a semi-transparent overlay and centers the message on screen.
+    - text_color is RGB tuple
+    - overlay_color is RGBA for semi-transparent background
+    - base_size: if None, computed from screen width
+    """
+    w, h = screen.get_size()
+    # adaptive font size
+    if base_size is None:
+        base_size = max(28, min(72, w // 12))
+    try:
+        font = pygame.font.SysFont(font_name, base_size, True)
+    except Exception:
+        font = pygame.font.SysFont(None, base_size, True)
+
+    # overlay
+    overlay = pygame.Surface((w, h), pygame.SRCALPHA)
+    overlay.fill(overlay_color)  # RGBA
+    screen.blit(overlay, (0, 0))
+
+    # render shadow then text for better contrast
+    text_surf = font.render(message, True, text_color)
+    shadow_surf = font.render(message, True, (0, 0, 0))
+
+    x = w // 2 - text_surf.get_width() // 2
+    y = h // 2 - text_surf.get_height() // 2
+
+    # draw shadow slightly offset
+    screen.blit(shadow_surf, (x + 3, y + 3))
+    screen.blit(text_surf, (x, y))
+
+    # optionally update display here (or do it in main loop)
+    pygame.display.update()
+
+
 class Game:
     """Контроллер игры: обработка событий, управление анимацией и отрисовкой.
 
@@ -282,31 +322,56 @@ class Game:
             if self.engine.is_move_legal(move):
                 leg_moves_for_white.append(move)
 
+        # Checkmate for White (dark red-ish overlay, white text)
         if self.engine.is_in_check('w') and leg_moves_for_white == []:
-            font = pygame.font.SysFont('Calibri', 60, True)
-            text = font.render('Checkmate for White', True, (255, 255, 255))
-            screen.blit(text, (100, 200))
-            pygame.display.update()
+            show_centered_message(screen, "Checkmate for White",
+                                  text_color=(245, 245, 245),
+                                  overlay_color=(60, 10, 10, 200))
 
+        # Checkmate for Black (dark blue-ish overlay, white text)
         if self.engine.is_in_check('b') and leg_moves_for_black == []:
-            font = pygame.font.SysFont('Calibri', 60, True)
-            text = font.render('Checkmate for Black', True, (255, 255, 255))
-            screen.blit(text, (100, 200))
-            pygame.display.update()
+            show_centered_message(screen, "Checkmate for Black",
+                                  text_color=(245, 245, 245),
+                                  overlay_color=(10, 30, 60, 200))
 
-        if not self.engine.is_in_check('w') and not self.engine.is_in_check('b'):
-            if leg_moves_for_white == [] or leg_moves_for_black == []:
-                font = pygame.font.SysFont('Calibri', 60, True)
-                text = font.render('Stalemate', True, (255, 255, 255))
-                screen.blit(text, (100, 200))
-                pygame.display.update()
+        # Stalemate (muted golden text on dark overlay)
+        if (not self.engine.is_in_check('w') and not self.engine.is_in_check('b')) and \
+                (leg_moves_for_white == [] or leg_moves_for_black == []):
+            show_centered_message(screen, "Stalemate",
+                                  text_color=(240, 210, 120),
+                                  overlay_color=(20, 20, 20, 190))
 
+        # 50-move / half-move draw (neutral gray on dark overlay)
         if self.half_counter_moves >= 100:
-            screen.fill((0,0,0))
-            font = pygame.font.SysFont('Calibri', 60, True)
-            text = font.render('Draw', True, (255, 255, 255))
-            screen.blit(text, (100, 200))
-            pygame.display.update()
+            show_centered_message(screen, "Draw",
+                                  text_color=(220, 220, 220),
+                                  overlay_color=(15, 15, 15, 200))
+
+        # if self.engine.is_in_check('w') and leg_moves_for_white == []:
+        #     font = pygame.font.SysFont('Calibri', 60, True)
+        #     text = font.render('Checkmate for White', True, (255, 255, 255))
+        #     screen.blit(text, (100, 200))
+        #     pygame.display.update()
+        #
+        # if self.engine.is_in_check('b') and leg_moves_for_black == []:
+        #     font = pygame.font.SysFont('Calibri', 60, True)
+        #     text = font.render('Checkmate for Black', True, (255, 255, 255))
+        #     screen.blit(text, (100, 200))
+        #     pygame.display.update()
+        #
+        # if not self.engine.is_in_check('w') and not self.engine.is_in_check('b'):
+        #     if leg_moves_for_white == [] or leg_moves_for_black == []:
+        #         font = pygame.font.SysFont('Calibri', 60, True)
+        #         text = font.render('Stalemate', True, (255, 255, 255))
+        #         screen.blit(text, (100, 200))
+        #         pygame.display.update()
+        #
+        # if self.half_counter_moves >= 100:
+        #     screen.fill((0,0,0))
+        #     font = pygame.font.SysFont('Calibri', 60, True)
+        #     text = font.render('Draw', True, (255, 255, 255))
+        #     screen.blit(text, (100, 200))
+        #     pygame.display.update()
 
         pygame.display.flip()
         self.clock.tick(FPS)
