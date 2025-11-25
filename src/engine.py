@@ -57,6 +57,8 @@ class Piece:
 class Pawn(Piece):
     """Логика перемещения пешки: шаг вперёд, двойной шаг, захваты и en-passant."""
 
+    is_moved = False
+
     def __init__(self, color: str):
         super().__init__(color, 'P')
 

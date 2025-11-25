@@ -60,6 +60,7 @@ class Game:
         self.animated_move: Optional[AnimatedMove] = None
         self.sounds = SoundManager()
         self.promotion_center: Optional[Pos] = None
+        self.half_counter_moves = 0
 
     def start_animation_for_move(self, mv: Move):
         """Подготовить и начать анимацию для хода.
@@ -176,6 +177,10 @@ class Game:
                     self.promotion_center = (px, py)
                     return
                 self.start_animation_for_move(mv)
+                if piece and piece.kind != 'P' and mv.captured is None:
+                    self.half_counter_moves += 1
+                else:
+                    self.half_counter_moves = 0
             else:
                 if p and p.color == self.engine.turn:
                     self.selected = sq
@@ -231,7 +236,7 @@ class Game:
         self.pending_promotion_move = None
         self.promotion_rects = None
 
-    def run_once(self) -> bool:
+    def run_once(self, screen) -> bool:
         """Выполнить одну итерацию игрового цикла.
 
         Обрабатывает события Pygame (клик мышью, клавиши), обновляет анимации,
@@ -267,6 +272,43 @@ class Game:
         else:
             self.renderer.draw(self.board, self.selected, self.legal_moves, self.animated_move)
 
+        leg_moves_for_black = []
+        for move in self.engine.all_pseudo_legal_moves_for('b'):
+            if self.engine.is_move_legal(move):
+                leg_moves_for_black.append(move)
+
+        leg_moves_for_white = []
+        for move in self.engine.all_pseudo_legal_moves_for('w'):
+            if self.engine.is_move_legal(move):
+                leg_moves_for_white.append(move)
+
+        #and self.engine.legal_moves_for(self.board.find_king('b')) == []
+        if self.engine.is_in_check('w') and leg_moves_for_white == []:
+            font = pygame.font.SysFont('Calibri', 60, True)
+            text = font.render('Checkmate for White', True, (255, 255, 255))
+            screen.blit(text, (100, 200))
+            pygame.display.update()
+
+        if self.engine.is_in_check('b') and leg_moves_for_black == []:
+            font = pygame.font.SysFont('Calibri', 60, True)
+            text = font.render('Checkmate for Black', True, (255, 255, 255))
+            screen.blit(text, (100, 200))
+            pygame.display.update()
+
+        if not self.engine.is_in_check('w') and not self.engine.is_in_check('b'):
+            if leg_moves_for_white == [] or leg_moves_for_black == []:
+                font = pygame.font.SysFont('Calibri', 60, True)
+                text = font.render('Stalemate', True, (255, 255, 255))
+                screen.blit(text, (100, 200))
+                pygame.display.update()
+
+        if self.half_counter_moves >= 10:
+            screen.fill((0,0,0))
+            font = pygame.font.SysFont('Calibri', 60, True)
+            text = font.render('Draw', True, (255, 255, 255))
+            screen.blit(text, (100, 200))
+            pygame.display.update()
+
         pygame.display.flip()
         self.clock.tick(FPS)
         return True
@@ -288,7 +330,7 @@ def main():
     running = True
 
     while running:
-        running = game.run_once()
+        running = game.run_once(screen)
 
     pygame.quit()
     sys.exit()
